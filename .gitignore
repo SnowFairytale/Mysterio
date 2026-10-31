@@ -25,3 +25,6 @@ dist/
 # 编辑器
 .vscode/
 .idea/
+
+# 发布包（作为 Release 附件上传，不进仓库）
+*.zip
