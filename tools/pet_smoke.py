@@ -835,6 +835,42 @@ def main() -> int:
     app.processEvents()
     check("退出时能真正关闭", not win.isVisible(), str(win.isVisible()))
 
+    # ---------- 12. 设置里的网络任务生命周期 ----------
+    net = SettingsWindow(config, 2.0)
+    net._worker = None
+
+    def slow_task():
+        QTest.qWait(500)
+        return "ok"
+
+    first = net._start(slow_task, net._show_test)
+    second = net._start(slow_task, net._show_test)
+    check("同一时间只跑一个网络任务", first is True and second is False, f"{first}/{second}")
+
+    for _ in range(80):
+        QTest.qWait(50)
+        if net._worker is None:
+            break
+    QTest.qWait(200)
+    check("任务结束后清空 worker 引用", net._worker is None, "仍指向已销毁对象")
+    check("任务结束后按钮恢复可用", net._test_button.isEnabled() and net._fetch.isEnabled())
+
+    again = net._start(lambda: "ok2", net._show_test)
+    check("可以连续发起第二次任务", again is True, str(again))
+    for _ in range(80):
+        QTest.qWait(50)
+        if net._worker is None:
+            break
+    QTest.qWait(200)
+
+    closed_ok = True
+    try:
+        net.shutdown()
+    except Exception as exc:  # noqa: BLE001 - 只关心是否抛异常
+        closed_ok = False
+        detail = f"{type(exc).__name__}: {exc}"
+    check("有网络任务历史时关闭窗口也不抛异常", closed_ok, "" if closed_ok else detail)
+
     # ---------- 12. 汇总 ----------
     report = {
         "python": sys.version.split()[0],

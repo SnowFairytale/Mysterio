@@ -28,3 +28,6 @@ dist/
 
 # 发布包（作为 Release 附件上传，不进仓库）
 *.zip
+
+# 本地 Python 解释器路径（run.bat 用）
+.python-path

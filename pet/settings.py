@@ -872,16 +872,32 @@ class SettingsWindow(QWidget):
         self._test_button.setEnabled(not busy)
         self._fetch.setEnabled(not busy)
 
-    def _start(self, task, on_done) -> None:
-        if self._worker is not None and self._worker.isRunning():
-            return
+    def _start(self, task, on_done) -> bool:
+        """启动一个后台网络任务；已有任务在跑时返回 False。"""
+        if self._worker is not None:
+            try:
+                if self._worker.isRunning():
+                    return False
+            except RuntimeError:
+                # C++ 对象已被 deleteLater 回收，丢掉这个悬空引用
+                self._worker = None
         worker = _NetWorker(task)
         worker.done.connect(on_done)
         worker.fail.connect(self._on_net_fail)
+        worker.finished.connect(self._on_worker_finished)
         worker.finished.connect(worker.deleteLater)
         self._worker = worker
         self._busy(True)
         worker.start()
+        return True
+
+    def _on_worker_finished(self) -> None:
+        """线程结束：清掉引用并保证按钮一定恢复可用，避免界面像卡死。"""
+        self._worker = None
+        try:
+            self._busy(False)
+        except RuntimeError:
+            pass
 
     def _on_net_fail(self, message: str) -> None:
         try:
@@ -910,12 +926,16 @@ class SettingsWindow(QWidget):
         model = self._model.currentText().strip()
         self._test_result.setStyleSheet(f"color:{MUTED};font-size:11px;")
         self._test_result.setText("正在连接…")
-        self._start(
+        started = self._start(
             lambda: test_connection(
-                spec.key, key, base, model, proxy=self._proxy.text().strip() or None
+                spec.key, key, base, model,
+                proxy=self._proxy.text().strip() or None,
+                timeout=15.0,
             ),
             self._show_test,
         )
+        if not started:
+            self._test_result.setText("上一次请求还没结束，稍等一下再试…")
 
     def _fetch_models(self) -> None:
         spec = providers.get(self._current)
@@ -927,10 +947,16 @@ class SettingsWindow(QWidget):
         base = self._base_url.text().strip()
         self._test_result.setStyleSheet(f"color:{MUTED};font-size:11px;")
         self._test_result.setText("正在拉取模型列表…")
-        self._start(
-            lambda: list_models(spec.key, key, base, proxy=self._proxy.text().strip() or None),
+        started = self._start(
+            lambda: list_models(
+                spec.key, key, base,
+                proxy=self._proxy.text().strip() or None,
+                timeout=15.0,
+            ),
             lambda names: self._on_models(spec, names),
         )
+        if not started:
+            self._test_result.setText("上一次请求还没结束，稍等一下再试…")
 
     def _on_models(self, spec: providers.ProviderSpec, names: object) -> None:
         try:
@@ -1000,6 +1026,12 @@ class SettingsWindow(QWidget):
     def shutdown(self) -> None:
         """退出程序时真正关闭，不留后台窗口。"""
         self._allow_close = True
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(1200)
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            try:
+                if worker.isRunning():
+                    worker.wait(1200)
+            except RuntimeError:
+                pass
         self.close()

@@ -10,7 +10,7 @@ import sys
 import traceback
 from datetime import datetime
 
-from PyQt6.QtCore import QObject, Qt
+from PyQt6.QtCore import QObject, QTimer, Qt
 from PyQt6.QtGui import QAction, QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
@@ -304,17 +304,33 @@ def _run() -> int:
         window.hide()
 
     def shutdown() -> None:
-        controller.stop()
-        behavior.shutdown()
-        memory.save()
-        config.save()
+        """退出清理：每一步都独立兜底，任何一步出错都不能挡住退出。"""
+        steps = (
+            ("controller", controller.stop),
+            ("behavior", behavior.shutdown),
+            ("memory", memory.save),
+            ("config", config.save),
+        )
+        for name, action in steps:
+            try:
+                action()
+            except Exception:
+                log(f"退出清理 {name} 失败：\n{traceback.format_exc()}")
         if settings is not None:
-            settings.shutdown()
+            try:
+                settings.shutdown()
+            except Exception:
+                log("退出清理 settings 失败：\n" + traceback.format_exc())
 
     def quit_app() -> None:
+        log("收到退出请求")
         shutdown()
-        if tray is not None:
-            tray.hide()
+        try:
+            if tray is not None:
+                tray.hide()
+        except Exception:
+            log("隐藏托盘图标失败：\n" + traceback.format_exc())
+        log("退出")
         app.quit()
 
     window.chatRequested.connect(lambda: toggle_bubble(window, bubble, behavior))
@@ -374,6 +390,17 @@ def _run() -> int:
             QSystemTrayIcon.MessageIcon.Information,
             6000,
         )
+
+    # 调试用：--quit-after=3 会在 3 秒后走一遍正常退出流程，方便验证退出链路
+    for arg in sys.argv:
+        if arg.startswith("--quit-after="):
+            try:
+                seconds = float(arg.split("=", 1)[1])
+            except ValueError:
+                break
+            log(f"定时退出: {seconds} 秒后")
+            QTimer.singleShot(int(seconds * 1000), quit_app)
+            break
 
     return app.exec()
 
