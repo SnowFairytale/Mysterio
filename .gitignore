@@ -1,0 +1,27 @@
+# 运行时配置，含 API Key，不要提交
+config.json
+config.json.tmp
+
+# 对话记忆，含聊天内容，不要提交
+memory.json
+memory.json.tmp
+facts.json
+facts.json.tmp
+
+# 运行日志
+pet.log
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 测试与打包产物
+build/
+dist/
+*.spec
+
+# 编辑器
+.vscode/
+.idea/
